@@ -1,11 +1,85 @@
 import jsPDF from "jspdf";
 import type { MenuStore } from "./store";
 
-export const generatePDF = (store: MenuStore) => {
+const formatDate = (date: Date, language: string) => {
+  if (language === 'ro') {
+    const months = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];    
+    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  }
+  
+  return date.toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+};
+
+const splitTextToFit = (doc: jsPDF, text: string, maxWidth: number): string[] => {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = words[0];
+
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = doc.getStringUnitWidth(currentLine + ' ' + word) * doc.getFontSize() / doc.internal.scaleFactor;
+    
+    if (width < maxWidth) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  lines.push(currentLine);
+  return lines;
+};
+
+const sendToWordPress = async (store: MenuStore) => {
+  const menuDate = store.selectedDate || new Date();
+  const dateStr = formatDate(new Date(menuDate), store.language);
+  
+  const firstCourses = store.firstCourses
+    .filter(course => course.name)
+    .map(course => course.name);
+
+  const secondCourses = store.secondCourses
+    .filter(course => course.name)
+    .map(course => course.name);
+
+  try {
+    const response = await fetch('https://restaurantelreinodedracula.es/wp-json/menu/v1/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        date: dateStr,
+        first_courses: firstCourses,
+        second_courses: secondCourses,
+        language: store.language
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error('Error al enviar a WordPress: ' + (errorData.message || response.statusText));
+    }
+
+    return await response.json();
+
+  } catch (error) {
+    console.error('Error al enviar a WordPress:', error);
+    throw error;
+  }
+};
+
+export const generatePDF = async (store: MenuStore) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
   const pageHeight = doc.internal.pageSize.height;
   const margin = 20;
+  const maxWidth = pageWidth - (margin * 2);
   let yPos = margin;
 
   // Cabecera
@@ -19,20 +93,6 @@ export const generatePDF = (store: MenuStore) => {
   doc.setFontSize(18);
   doc.setTextColor(80, 80, 80);
   const menuDate = store.selectedDate || new Date();
-  const formatDate = (date: Date, language: string) => {
-    if (language === 'ro') {
-      const months = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];    
-      return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-    }
-    
-    return date.toLocaleDateString('es-ES', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-   };
-  
   const dateStr = formatDate(new Date(menuDate), store.language);
 
   doc.text(
@@ -60,12 +120,15 @@ export const generatePDF = (store: MenuStore) => {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(26);
   doc.setTextColor(20, 20, 20);
+  
   store.firstCourses.forEach((course) => {
     if (course.name) {
-      doc.text(course.name.toUpperCase(), pageWidth / 2, yPos, {
-        align: "center",
+      const lines = splitTextToFit(doc, course.name.toUpperCase(), maxWidth);
+      lines.forEach(line => {
+        doc.text(line, pageWidth / 2, yPos, { align: "center" });
+        yPos += 15;
       });
-      yPos += 15;
+      yPos += 5; // Espacio adicional entre platos
     }
   });
 
@@ -86,12 +149,15 @@ export const generatePDF = (store: MenuStore) => {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(26);
   doc.setTextColor(20, 20, 20);
+  
   store.secondCourses.forEach((course) => {
     if (course.name) {
-      doc.text(course.name.toUpperCase(), pageWidth / 2, yPos, {
-        align: "center",
+      const lines = splitTextToFit(doc, course.name.toUpperCase(), maxWidth);
+      lines.forEach(line => {
+        doc.text(line, pageWidth / 2, yPos, { align: "center" });
+        yPos += 15;
       });
-      yPos += 15;
+      yPos += 5; // Espacio adicional entre platos
     }
   });
 
@@ -110,5 +176,14 @@ export const generatePDF = (store: MenuStore) => {
     })
     .replace(/\//g, "-")}.pdf`;
 
+  // Primero generar el PDF
   doc.save(filename);
+
+  // Luego enviar a WordPress
+  try {
+    await sendToWordPress(store);
+  } catch (error) {
+    console.error('Error al enviar a WordPress:', error);
+    throw error;
+  }
 };
