@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import type { MenuStore } from "./store";
+import { sendToWordPress } from "./wordpress";
 
 const formatDate = (date: Date, language: string) => {
   if (language === 'ro') {
@@ -33,45 +34,6 @@ const splitTextToFit = (doc: jsPDF, text: string, maxWidth: number): string[] =>
   }
   lines.push(currentLine);
   return lines;
-};
-
-const sendToWordPress = async (store: MenuStore) => {
-  const menuDate = store.selectedDate || new Date();
-  const dateStr = formatDate(new Date(menuDate), store.language);
-  
-  const firstCourses = store.firstCourses
-    .filter(course => course.name)
-    .map(course => course.name);
-
-  const secondCourses = store.secondCourses
-    .filter(course => course.name)
-    .map(course => course.name);
-
-  try {
-    const response = await fetch('https://restaurantelreinodedracula.es/wp-json/menu/v1/create', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        date: dateStr,
-        first_courses: firstCourses,
-        second_courses: secondCourses,
-        language: store.language
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error('Error al enviar a WordPress: ' + (errorData.message || response.statusText));
-    }
-
-    return await response.json();
-
-  } catch (error) {
-    console.error('Error al enviar a WordPress:', error);
-    throw error;
-  }
 };
 
 export const generatePDF = async (store: MenuStore) => {

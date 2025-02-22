@@ -14,9 +14,6 @@ export default function Home() {
         animate={{ opacity: 1, y: 0 }}
         className="max-w-6xl mx-auto text-center mb-8"
       >
-        <div className="mb-8 space-y-2">
-          <h1 className="text-4xl font-bold">Generador de menús</h1>
-        </div>
       </motion.div>
       <MenuForm />
       <footer className="text-center text-gray-600 mt-8">
