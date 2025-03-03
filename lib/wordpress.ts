@@ -47,19 +47,56 @@ function generateWordPressContent(menuData: MenuData): string {
 
 export async function sendToWordPress(store: MenuStore) {
   try {
-    const menuDate = store.selectedDate || new Date();
-    const dateStr = formatDate(new Date(menuDate), store.language);
+    // Asegurarse de que tenemos una fecha válida
+    if (!store.selectedDate) {
+      throw new Error(
+        store.language === 'es'
+          ? 'No se ha seleccionado una fecha para el menú'
+          : 'Nu a fost selectată o dată pentru meniu'
+      );
+    }
+    
+    const menuDate = new Date(store.selectedDate);
+    if (isNaN(menuDate.getTime())) {
+      throw new Error(
+        store.language === 'es'
+          ? 'La fecha seleccionada no es válida'
+          : 'Data selectată nu este validă'
+      );
+    }
+    
+    const dateStr = formatDate(menuDate, store.language);
+    
+    // Filtrar platos vacíos
+    const validFirstCourses = store.firstCourses
+      .filter(course => course.name && course.name.trim() !== '')
+      .map(course => course.name);
+      
+    const validSecondCourses = store.secondCourses
+      .filter(course => course.name && course.name.trim() !== '')
+      .map(course => course.name);
+      
+    if (validFirstCourses.length === 0 || validSecondCourses.length === 0) {
+      throw new Error(
+        store.language === 'es'
+          ? 'Debes incluir al menos un plato en cada sección'
+          : 'Trebuie să incluzi cel puțin un fel de mâncare în fiecare secțiune'
+      );
+    }
     
     const menuData: MenuData = {
       date: dateStr,
-      first_courses: store.firstCourses
-        .filter(course => course.name)
-        .map(course => course.name),
-      second_courses: store.secondCourses
-        .filter(course => course.name)
-        .map(course => course.name),
+      first_courses: validFirstCourses,
+      second_courses: validSecondCourses,
       language: store.language
     };
+
+    console.log('Enviando menú a WordPress:', {
+      date: dateStr,
+      firstCoursesCount: validFirstCourses.length,
+      secondCoursesCount: validSecondCourses.length,
+      language: store.language
+    });
 
     const response = await fetch('/api/update-menu', {
       method: 'POST',
@@ -74,28 +111,47 @@ export async function sendToWordPress(store: MenuStore) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Error al actualizar el menú');
+      let errorMessage;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || 'Error desconocido al actualizar el menú';
+      } catch (e) {
+        errorMessage = `Error HTTP ${response.status}`;
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    return await response.json();
+    const result = await response.json();
+    console.log('Respuesta de WordPress:', result);
+    
+    return result;
   } catch (error) {
-    console.error('Error sending to WordPress:', error);
+    console.error('Error al enviar a WordPress:', error);
     throw error;
   }
 }
 
-// Mantener la función formatDate que ya tenías
+// Función para formatear la fecha según el idioma
 const formatDate = (date: Date, language: string) => {
   if (language === 'ro') {
     const months = ['ianuarie', 'februarie', 'martie', 'aprilie', 'mai', 'iunie', 'iulie', 'august', 'septembrie', 'octombrie', 'noiembrie', 'decembrie'];    
     return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
   }
   
-  return date.toLocaleDateString('es-ES', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  // Para español
+  try {
+    return date.toLocaleDateString('es-ES', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  } catch (e) {
+    // Fallback por si hay problemas con el locale
+    const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    
+    return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]} de ${date.getFullYear()}`;
+  }
 };
